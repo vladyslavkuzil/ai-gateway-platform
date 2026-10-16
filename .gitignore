@@ -1,0 +1,82 @@
+# Local secrets and env
+.env
+.env.*
+!.env.example
+
+# Java / Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+.idea/
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+hs_err_pid*
+replay_pid*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Node / frontend (optional later)
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Analytics / local runtime data
+var/
+**/analytics-journal/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+!.vscode/extensions.json
+
+# Docker / Compose leftovers
+docker-compose.override.yml
+
+# Terraform / local state (future)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Helm / Kubernetes local values with secrets
+**/values-local.yaml
+**/values-secrets.yaml
+
+# Test / coverage artifacts
+coverage/
+*.lcov
+jacoco.exec

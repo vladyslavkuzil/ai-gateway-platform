@@ -1,0 +1,150 @@
+name: ai-gateway-platform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aigw-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: aigw-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: aigw-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # --- App services (add when the projects/Dockerfiles exist) ---
+
+  mock-provider:
+    profiles: ["apps"]
+    build:
+      context: ./python/mock-provider
+    container_name: aigw-mock-provider
+    ports:
+      - "8081:8081"
+    environment:
+      MOCK_MODE: healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  provider-service:
+    profiles: ["apps"]
+    build:
+      context: ./java/provider-service
+    container_name: aigw-provider-service
+    ports:
+      - "8089:8089"
+    environment:
+      SERVER_PORT: 8089
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${PROVIDER_DB}
+      SPRING_DATASOURCE_USERNAME: ${PROVIDER_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${PROVIDER_DB_PASSWORD}
+      MOCK_PROVIDER_BASE_URL: http://mock-provider:8081
+      OPENAI_ENABLED: ${OPENAI_ENABLED}
+      ANTHROPIC_ENABLED: ${ANTHROPIC_ENABLED}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-provider:
+        condition: service_started
+
+  inference-service:
+    profiles: ["apps"]
+    build:
+      context: ./java/inference-service
+    container_name: aigw-inference-service
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INFERENCE_DB}
+      SPRING_DATASOURCE_USERNAME: ${INFERENCE_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${INFERENCE_DB_PASSWORD}
+      PROVIDER_SERVICE_URL: http://provider-service:8089
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      provider-service:
+        condition: service_started
+
+  api-gateway:
+    profiles: ["apps"]
+    build:
+      context: ./java/api-gateway
+    container_name: aigw-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT}:8080"
+    environment:
+      SERVER_PORT: 8080
+      INFERENCE_SERVICE_URL: http://inference-service:8083
+      REDIS_URL: redis://redis:6379
+      BOOTSTRAP_ADMIN_TOKEN: ${BOOTSTRAP_ADMIN_TOKEN}
+    depends_on:
+      inference-service:
+        condition: service_started
+
+  # Observability (optional)
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v2.54.1
+    container_name: aigw-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:11.2.0
+    container_name: aigw-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
