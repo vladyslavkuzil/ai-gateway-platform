@@ -1800,6 +1800,8 @@ Python services are split because they already have different dependencies and f
 
 The commands in this section are the intended workflow for the repository described above. This checkout does not yet contain `docker-compose.yml`, Maven wrappers, or Python packages, so these commands are not a verified transcript.
 
+Branch and commit naming conventions live in [docs/development.md](docs/development.md).
+
 ### Environment file
 
 `.env.example` should document placeholders, never real secrets:
