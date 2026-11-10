@@ -30,7 +30,7 @@ services:
       retries: 10
 
   kafka:
-    image: bitnami/kafka:3.7
+    image: soldevelo/kafka:3.7
     container_name: aigw-kafka
     ports:
       - "9092:9092"
