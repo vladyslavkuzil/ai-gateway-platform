@@ -98,19 +98,18 @@ The authoritative financial state lives in PostgreSQL. Kafka, Redis, the analyti
 
 | Choice | Role |
 | --- | --- |
-| Java 21+ LTS | Language baseline. Virtual threads carry blocking provider I/O. |
-| Spring Boot 3.x on Java 21 | Application runtime. Use the current 3.x train that supports Java 21 unless the repository later standardizes on a newer compatible train. |
-| Spring MVC | Synchronous request path. |
-| Spring Security | API-key authentication and role checks. |
-| Spring Data JPA and Hibernate | Persistence. Financial updates that protect invariants use explicit SQL. |
+| C# on .NET 8+ LTS | Language and runtime baseline. Prefer the current supported LTS (or newer compatible LTS) for all platform services. |
+| ASP.NET Core | HTTP APIs, middleware, dependency injection, and hosting. Minimal APIs or controllers are both acceptable; keep one style per service. |
+| ASP.NET Core authentication / authorization | API-key authentication and role or scope checks. |
+| Entity Framework Core | Persistence. Financial updates that protect invariants use explicit SQL (`EXECUTE` / `FromSql` / Npgsql) when a conditional update must be atomic. |
 | PostgreSQL | Authoritative transactional databases, one owned database per service. |
-| Flyway | Versioned schema migrations. |
-| Bean Validation | Request and configuration constraints. |
-| Resilience4j | Circuit breakers, retry, and bulkheads around provider calls. |
-| Spring `RestClient` | Blocking HTTP client per provider, with connect and response timeouts. |
-| JUnit 5, Mockito, Testcontainers | Unit and integration tests. WireMock for provider-adapter contracts. |
+| EF Core migrations | Versioned schema migrations owned by each service. |
+| DataAnnotations and/or FluentValidation | Request and configuration constraints. |
+| Polly | Circuit breakers, retry, timeouts, and bulkheads around provider calls via `Microsoft.Extensions.Http.Resilience` or equivalent. |
+| `IHttpClientFactory` and `HttpClient` | Outbound HTTP to providers and peer services, with connect and response timeouts. |
+| xUnit, NSubstitute or Moq, Testcontainers for .NET | Unit and integration tests. WireMock.NET for provider-adapter contracts. |
 
-Spring WebFlux is a **future enhancement**. Streaming or a measured bottleneck would justify it, and only at the edge that needs it. The MVP stays on one programming model: Spring MVC plus virtual threads.
+Prefer `async`/`await` on I/O paths. A fully reactive stack is unnecessary for the MVP. Streaming responses are a **future enhancement** after the non-streaming path is reliable.
 
 ### Python services
 
@@ -155,23 +154,23 @@ A **logical module** is still useful inside a service. For example, reservation 
 
 | Service | Stack | Owns | Must not own |
 | --- | --- | --- | --- |
-| `api-gateway` | Java, Spring Boot | Public ingress, request limits, rate limiting, authentication facade, response/error normalization | Workflow, identity, policy, financial, or provider persistence |
-| `inference-service` | Java, Spring Boot | Durable inference saga, client idempotency, normalized request/response state | Identity rows, policies, provider credentials, budgets, ledger |
-| `identity-service` | Java, Spring Boot | Users, service identities, API-key hashes, roles, key expiration and revocation | Organization/team lifecycle or budgets |
-| `tenant-service` | Java, Spring Boot | Organizations, teams, memberships, tenant status and currency | Credentials, policies, or financial state |
-| `policy-service` | Java, Spring Boot | Organization defaults, team overrides, allowlists, token ceilings, privacy and failover rules | Models, prices, provider credentials, or balances |
-| `model-catalog-service` | Java, Spring Boot | Model aliases, provider metadata without secrets, capabilities, pricing versions, immutable route decisions | Credentials, breakers, or balances |
-| `budget-ledger-service` | Java, Spring Boot | Budget periods, reservations, usage facts, settlement, append-only ledger, financial reconciliation | Provider invocation or analytical projections |
-| `provider-service` | Java, Spring Boot | Provider credentials, adapters, durable provider attempts, retries, breakers, failover execution, uncertain outcomes | Team budget or policy administration |
-| `notification-service` | Java, Spring Boot | Alert deduplication and delivery status | Budget enforcement |
+| `api-gateway` | C#, ASP.NET Core | Public ingress, request limits, rate limiting, authentication facade, response/error normalization | Workflow, identity, policy, financial, or provider persistence |
+| `inference-service` | C#, ASP.NET Core | Durable inference saga, client idempotency, normalized request/response state | Identity rows, policies, provider credentials, budgets, ledger |
+| `identity-service` | C#, ASP.NET Core | Users, service identities, API-key hashes, roles, key expiration and revocation | Organization/team lifecycle or budgets |
+| `tenant-service` | C#, ASP.NET Core | Organizations, teams, memberships, tenant status and currency | Credentials, policies, or financial state |
+| `policy-service` | C#, ASP.NET Core | Organization defaults, team overrides, allowlists, token ceilings, privacy and failover rules | Models, prices, provider credentials, or balances |
+| `model-catalog-service` | C#, ASP.NET Core | Model aliases, provider metadata without secrets, capabilities, pricing versions, immutable route decisions | Credentials, breakers, or balances |
+| `budget-ledger-service` | C#, ASP.NET Core | Budget periods, reservations, usage facts, settlement, append-only ledger, financial reconciliation | Provider invocation or analytical projections |
+| `provider-service` | C#, ASP.NET Core | Provider credentials, adapters, durable provider attempts, retries, breakers, failover execution, uncertain outcomes | Team budget or policy administration |
+| `notification-service` | C#, ASP.NET Core | Alert deduplication and delivery status | Budget enforcement |
 | `analytics-service` | Python, FastAPI | Kafka projections, forecasting, anomaly hints | Authoritative financial writes |
-| `audit-service` | Java, Spring Boot | Immutable central projection and query API for administrative audit events | Synchronous authorization or mutation of source aggregates |
+| `audit-service` | C#, ASP.NET Core | Immutable central projection and query API for administrative audit events | Synchronous authorization or mutation of source aggregates |
 | `mock-provider` | Python, FastAPI | Deterministic provider simulation and chaos modes | Platform business data |
 | `admin-frontend` | React, TypeScript | **Optional** UI | Direct database access |
 
 The first eleven rows are production microservices. `mock-provider` is a development/test service and does not count toward the eleven. This split follows bounded contexts rather than one service per table. Reservation, settlement, usage, and ledger remain together because separating them would require distributed transactions to protect money. Policy decides what is allowed; model catalog decides how an allowed alias maps to versioned candidates and prices. The final route decision records both inputs.
 
-Each service owns a separate PostgreSQL **database** in deployed environments. Docker Compose may run those databases on one PostgreSQL server to reduce local resource use, but each database has a distinct user and no service receives credentials for another database. Cross-database joins, shared JPA entities, and direct reads of another service's tables are prohibited.
+Each service owns a separate PostgreSQL **database** in deployed environments. Docker Compose may run those databases on one PostgreSQL server to reduce local resource use, but each database has a distinct user and no service receives credentials for another database. Cross-database joins, shared EF Core entities, and direct reads of another service's tables are prohibited.
 
 `api-gateway` is a stateless public edge. `inference-service` is the orchestrator, but not a financial authority. The request path is a persistent saga:
 
@@ -212,13 +211,13 @@ The provider HTTP call, service-local PostgreSQL transactions, and Kafka publica
 
 ### Cross-cutting conventions
 
-**Money.** Authoritative amounts are integers in micro-units of the organization's currency. One currency unit equals `1_000_000` micro-units. USD $0.25 is `250_000`. PostgreSQL stores these as `BIGINT`. Java uses `long` inside a `Money` value type. The MVP supports one currency per organization, recorded on the organization row. Binary floating-point types (`float`, `double`, PostgreSQL `REAL`/`DOUBLE PRECISION`) are not used for budgets, prices, estimates, or ledger amounts.
+**Money.** Authoritative amounts are integers in micro-units of the organization's currency. One currency unit equals `1_000_000` micro-units. USD $0.25 is `250_000`. PostgreSQL stores these as `BIGINT`. C# uses `long` inside a `Money` value type. The MVP supports one currency per organization, recorded on the organization row. Binary floating-point types (`float`, `double`, PostgreSQL `REAL`/`DOUBLE PRECISION`) are not used for budgets, prices, estimates, or ledger amounts.
 
 **Rounding.** Reservation estimates and internal charges round **up** to the next micro-unit. That biases the team budget slightly high relative to a fractional provider price and avoids under-reserving because of truncation. Invoice differences are corrected with explicit ledger adjustments.
 
 **Time.** All timestamps are `timestamptz`, stored in UTC, and serialized as ISO-8601 with an offset. Budget periods use an inclusive `period_start` and an exclusive `period_end`. A request keeps the budget row it reserved against even if the wall clock crosses into the next period before settlement.
 
-**Identifiers.** Public request, reservation, and event ids are UUID v4 (`java.util.UUID`). Ledger and outbox rows also have a `BIGSERIAL` surrogate so publishers and auditors can order rows created in one database. Client idempotency keys are opaque strings supplied by the caller, unique per team, with a maximum length of 255.
+**Identifiers.** Public request, reservation, and event ids are UUID v4 (`System.Guid`). Ledger and outbox rows also have a `BIGSERIAL` surrogate so publishers and auditors can order rows created in one database. Client idempotency keys are opaque strings supplied by the caller, unique per team, with a maximum length of 255.
 
 **Correlation.** The gateway accepts `X-Request-Id` when it is a safe token, otherwise it generates one. That id is the `llm_requests.id` exposed to the client, the trace attribute, and the log field `request_id`. Internal retries of the same provider call reuse one upstream idempotency key derived from the request id: `gw-{requestId}`.
 
@@ -491,7 +490,7 @@ flowchart TB
 - Every production service has at least two replicas except singleton migration Jobs and components whose partition ownership makes one replica intentional during the MVP.
 - Pods define CPU/memory requests and limits, startup/readiness/liveness probes, topology spread constraints, and graceful termination long enough to stop accepting requests and finish or persist in-flight work.
 - Readiness checks local dependencies required to serve the next request. They do not recursively fail because an optional downstream service or Kafka is unavailable.
-- Flyway runs as a pre-deployment Kubernetes Job for the owning service. Application pods use a database role that cannot perform arbitrary schema migrations.
+- EF Core migrations run as a pre-deployment Kubernetes Job for the owning service. Application pods use a database role that cannot perform arbitrary schema migrations.
 - `api-gateway` is the only application service with public ingress. Default-deny NetworkPolicies permit only documented service-to-service edges.
 - Pod-to-pod calls use Kubernetes DNS and short deadlines. Service discovery does not require a service mesh.
 
@@ -527,15 +526,15 @@ AKS provisioning can initially be documented with repeatable Azure CLI commands.
 
 ## Hexagonal architecture
 
-Hexagonal architecture is applied independently inside each Java microservice where a boundary protects either a domain rule or an external system. Services do not share domain modules or JPA entities. They may share generated API clients, event schemas, and observability libraries, but those artifacts contain no business logic.
+Hexagonal architecture is applied independently inside each C# microservice where a boundary protects either a domain rule or an external system. Services do not share domain modules or EF Core entities. They may share generated API clients, event schemas, and observability libraries, but those artifacts contain no business logic.
 
 | Ring | Contents | Depends on |
 | --- | --- | --- |
-| Domain | The service's own rules: budget arithmetic in `budget-ledger-service`, route plans in `model-catalog-service`, provider attempt states in `provider-service`. | Nothing Spring-specific and no code from another service. |
+| Domain | The service's own rules: budget arithmetic in `budget-ledger-service`, route plans in `model-catalog-service`, provider attempt states in `provider-service`. | Nothing ASP.NET-specific and no code from another service. |
 | Application | Service-local use cases such as `ReserveBudget`, `SettleReservation`, `DecideRoute`, or `ExecuteProviderCall`. | Domain and outbound ports. |
 | Inbound adapters | REST controllers, scheduled recovery, Kafka consumers. | Application use cases. |
 | Outbound ports | Service-local repositories, HTTP clients for explicitly allowed dependencies, `Clock`, and `EventOutbox`. | Domain types only. |
-| Outbound adapters | JPA/SQL, generated HTTP clients, provider adapters, Kafka publisher, Micrometer. | Ports and frameworks. |
+| Outbound adapters | EF Core/SQL, generated HTTP clients, provider adapters, Kafka publisher, OpenTelemetry metrics. | Ports and frameworks. |
 
 Dependency inversion matters at three boundaries:
 
@@ -543,7 +542,7 @@ Dependency inversion matters at three boundaries:
 - **Provider calls**, so `provider-service` can test execution and recovery with a fake adapter.
 - **Clock**, so reservation deadlines are deterministic in tests.
 
-Dependency inversion is unnecessary ceremony for simple CRUD inside a service. `tenant-service` may use Spring Data repositories directly for organizations and memberships. A service boundary itself is not an excuse to create an interface for every class.
+Dependency inversion is unnecessary ceremony for simple CRUD inside a service. `tenant-service` may use EF Core `DbContext` repositories directly for organizations and memberships. A service boundary itself is not an excuse to create an interface for every class.
 
 ```mermaid
 flowchart LR
@@ -557,18 +556,22 @@ flowchart LR
 
 The domain rule answers whether a single budget snapshot can accept a hold. Concurrency safety is the SQL adapter's job, not the pure function's job. Tests cover both layers.
 
-```java
-final class Budget {
-    private final long limitAmount;
-    private final long settledSpend;
-    private final long reservedAmount;
+```csharp
+sealed class Budget
+{
+    private readonly long _limitAmount;
+    private readonly long _settledSpend;
+    private readonly long _reservedAmount;
 
-    boolean canReserve(long estimate) {
-        if (estimate <= 0) {
-            return false;
-        }
-        return settledSpend + reservedAmount + estimate <= limitAmount;
+    public Budget(long limitAmount, long settledSpend, long reservedAmount)
+    {
+        _limitAmount = limitAmount;
+        _settledSpend = settledSpend;
+        _reservedAmount = reservedAmount;
     }
+
+    public bool CanReserve(long estimate) =>
+        estimate > 0 && _settledSpend + _reservedAmount + estimate <= _limitAmount;
 }
 ```
 
@@ -576,22 +579,22 @@ A unit test builds `Budget` values and checks `canReserve`. An integration test 
 
 ## Service and module catalog
 
-Each Java service uses its own package root under `dev.aigateway`. Feature packages inside that service own domain, application, and adapter code. No service imports another service's implementation package.
+Each C# service uses its own project and root namespace under `Aigateway`. Feature folders inside that service own domain, application, and adapter code. No service references another service's implementation project.
 
 ```text
-dev.aigateway.gateway             # public edge only
-dev.aigateway.inference           # durable inference saga
-dev.aigateway.identity            # identity-service only
-dev.aigateway.tenant              # tenant-service only
-dev.aigateway.policy              # policy-service only
-dev.aigateway.modelcatalog        # model-catalog-service only
-dev.aigateway.budgetledger        # budget-ledger-service only
-dev.aigateway.provider            # provider-service only
-dev.aigateway.notification        # notification-service only
-dev.aigateway.audit               # audit-service only
+Aigateway.Gateway                 # public edge only
+Aigateway.Inference               # durable inference saga
+Aigateway.Identity                # identity-service only
+Aigateway.Tenant                  # tenant-service only
+Aigateway.Policy                  # policy-service only
+Aigateway.ModelCatalog            # model-catalog-service only
+Aigateway.BudgetLedger            # budget-ledger-service only
+Aigateway.Provider                # provider-service only
+Aigateway.Notification            # notification-service only
+Aigateway.Audit                   # audit-service only
 ```
 
-Every service contains its own `domain`, `application`, `adapter.in`, and `adapter.out` packages only where those layers add value.
+Every service contains its own `Domain`, `Application`, `Adapters.In`, and `Adapters.Out` folders only where those layers add value.
 
 ### API gateway
 
@@ -626,7 +629,7 @@ The API gateway submits an already authenticated principal and validated request
 **Owns:** users, service identities, API keys, roles/scopes, expiration, rotation, and revocation.  
 **Depends on:** its own database and key-hashing primitives.  
 **Inbound:** internal key-introspection API and administrative REST API through the gateway.  
-**Outbound:** its own JPA repositories and outbox.
+**Outbound:** its own EF Core repositories and outbox.
 
 An API key resolves in this order:
 
@@ -727,11 +730,12 @@ Failover uses the same filter on the remaining candidates and also requires `all
 
 Port used by application services:
 
-```java
-interface LlmProvider {
-    CostEstimate estimateCost(EstimateQuery query);
-    ProviderCompletion complete(ProviderCall call);
-    ProviderErrorClassification classify(ProviderFailure failure);
+```csharp
+public interface ILlmProvider
+{
+    CostEstimate EstimateCost(EstimateQuery query);
+    Task<ProviderCompletion> CompleteAsync(ProviderCall call, CancellationToken cancellationToken);
+    ProviderErrorClassification Classify(ProviderFailure failure);
 }
 ```
 
@@ -783,7 +787,7 @@ A reconciliation query can recompute both sums and compare them to the aggregate
 ### Resilience and failover
 
 **Service module:** `resilience` inside `provider-service`  
-**Owns:** timeouts, Resilience4j policies, provider health view, and the decision to retry, fail over, or freeze a request as uncertain.  
+**Owns:** timeouts, Polly resilience policies, provider health view, and the decision to retry, fail over, or freeze a request as uncertain.  
 **Depends on:** routing and the provider port.  
 **Detailed design:** [Resilience and recovery](#resilience-and-recovery).
 
@@ -797,7 +801,7 @@ Defaults (all configurable, none of them universal SLOs):
 | Retry | At most one extra attempt, exponential backoff with jitter, only inside the remaining deadline |
 | Circuit breaker | Count-based sliding window, opens on consecutive unavailable failures (starting point: 5 of the last 10) |
 | Half-open | 1 probe |
-| Bulkhead | 20 concurrent provider calls per provider per JVM, reject beyond that |
+| Bulkhead | 20 concurrent provider calls per provider per process, reject beyond that |
 
 Retries are bounded. A retry reuses the upstream idempotency key when the provider supports it. Provider-service never fans out one user request to several providers in parallel.
 
@@ -923,8 +927,8 @@ Use it to demonstrate:
 **MVP**
 
 - JSON logs on stdout with `timestamp`, `level`, `logger`, `message`, `request_id`, `organization_id`, `team_id`, `provider`, `model_alias`, `duration_ms`, and `error_code`.
-- Micrometer metrics scraped by Prometheus from `/actuator/prometheus`.
-- Spring Boot `/actuator/health` in every service. Each service checks only its owned database and required synchronous dependencies; Kafka health is reported separately so a broker outage does not make the inference path unready.
+- OpenTelemetry metrics and/or `prometheus-net` scraped by Prometheus from `/metrics`.
+- ASP.NET Core health checks at `/health` (and `/health/ready` when split) in every service. Each service checks only its owned database and required synchronous dependencies; Kafka health is reported separately so a broker outage does not make the inference path unready.
 - Grafana dashboards provisioned from `infrastructure/grafana` for request rate, latency, provider errors, reservation outcomes, and outbox depth.
 
 **Planned in the observability phase:** OpenTelemetry traces exported through a collector, with the provider call as a child span. Logs and spans share `request_id`.
@@ -980,7 +984,7 @@ Container image and dependency scanning in GitHub Actions is a **future enhancem
 1. **Receive.** `POST /v1/chat/completions`. Assign `request_id`. Start the deadline clock and the access log. If the body exceeds the size limit, return `413` and stop.
 2. **Authenticate.** `api-gateway` calls `identity-service` to verify the API key, then `tenant-service` to verify active organization, team, and membership. Unknown, revoked, expired, inactive, and unauthorized credentials return a safe `401` or `403`.
 3. **Claim idempotency.** The gateway forwards the authenticated request to `inference-service`. In one inference-database transaction, inference-service inserts `llm_requests` and claims `(team_id, idempotency_key)` after hashing the request.
-4. **Validate.** JSON schema and Bean Validation: non-empty `messages`, supported roles, `max_tokens` present and positive, `stream` not true. Invalid input returns `400` and does not touch the budget.
+4. **Validate.** Request DTOs with DataAnnotations or FluentValidation: non-empty `messages`, supported roles, `max_tokens` present and positive, `stream` not true. Invalid input returns `400` and does not touch the budget.
 5. **Policy.** `inference-service` sends principal and request metadata—not the full prompt—to `policy-service`, which returns an immutable `policy_decision_id` and constraints or rejects the request.
 6. **Rate limit.** Consume one Redis token for the API key. On exceed, return `429` with `Retry-After`. No reservation yet.
 7. **Route.** `model-catalog-service` binds the policy decision to compatible model/provider candidates and persists `route_decision_id`. If none remain, inference-service returns `403` or `503` without a reservation.
@@ -1105,7 +1109,7 @@ Two transactions that target the last remaining funds serialize on the row lock.
 
 The same transaction inserts `budget_reservations` and the budget service's `outbox_events` row. `llm_requests` lives in `inference_db` and is deliberately outside this transaction. If the reservation insert fails, the hold increment rolls back with it.
 
-`SELECT ... FOR UPDATE` followed by an application-side check is an acceptable alternative when the transaction must read several rows before choosing an amount. It is correct only while the lock is held through the update. The conditional `UPDATE` is the MVP default because the predicate cannot be forgotten in Java. `SERIALIZABLE` is not required for this single-row predicate and is not the isolation level the application uses for the budget path.
+`SELECT ... FOR UPDATE` followed by an application-side check is an acceptable alternative when the transaction must read several rows before choosing an amount. It is correct only while the lock is held through the update. The conditional `UPDATE` is the MVP default because the predicate cannot be forgotten in application code. `SERIALIZABLE` is not required for this single-row predicate and is not the isolation level the application uses for the budget path.
 
 Lock order inside `budget_db`: **budget row first, reservation row second, usage/ledger rows last.** Release, settle, and adjust all use that order so two concurrent transactions cannot deadlock by locking the opposite way.
 
@@ -1224,7 +1228,7 @@ Concurrent duplicates block on the unique index. One insert commits; the other o
 
 #### Duplicate Kafka events
 
-Consumers store `event_id` in a primary key (analytics journal index, or `processed_events` in PostgreSQL for Java consumers). A repeated id is acknowledged and skipped. Handling is at least once. The platform does not claim end-to-end exactly-once business execution.
+Consumers store `event_id` in a primary key (analytics journal index, or `processed_events` in PostgreSQL for .NET consumers). A repeated id is acknowledged and skipped. Handling is at least once. The platform does not claim end-to-end exactly-once business execution.
 
 #### Repeated provider calls
 
@@ -1252,7 +1256,7 @@ Backoff is `min(cap, base * 2^attempt) ` plus jitter, with a default of one retr
 
 ### Circuit breaker
 
-Each provider id has a Resilience4j breaker in the JVM:
+Each provider id has a Polly circuit breaker in the process:
 
 | State | Behavior |
 | --- | --- |
@@ -1374,7 +1378,7 @@ Analytics projections are disposable. They are rebuilt from the journal, from Ka
 
 Paths below are the contract to implement. **MVP** endpoints are part of the definition of done. **Planned** endpoints can return `404` until their phase.
 
-Authentication is `Authorization: Bearer <token>` except for actuator scrape endpoints, which are bound to the internal network in deployment and left open only on the local Compose network.
+Authentication is `Authorization: Bearer <token>` except for metrics scrape endpoints, which are bound to the internal network in deployment and left open only on the local Compose network.
 
 `api-gateway` is the only public backend ingress. Inference is orchestrated by `inference-service`; administrative and analytical routes are thin facades over the owning service. The gateway performs authentication and coarse authorization, while the owning service repeats resource-level authorization from the trusted principal or service token. It never queries the owning database directly.
 
@@ -1438,8 +1442,8 @@ These routes are implemented by `analytics-service` and exposed through the gate
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/actuator/health` | Liveness and readiness. |
-| `GET` | `/actuator/prometheus` | Micrometer scrape. |
+| `GET` | `/health` | Liveness and readiness. |
+| `GET` | `/metrics` | Prometheus scrape. |
 
 ### Internal service APIs (MVP)
 
@@ -1626,7 +1630,7 @@ Envelope for every event:
 
 ### Consumers, retries, and dead letters
 
-Java consumers and the analytics consumer use a consumer group per service (`notification-service`, `analytics-service`). Processing failures retry with backoff inside the consumer. After 5 failures the record is appended to `{topic}.dlq` with the error class and the original payload, and the offset of the source record is committed so one poison message cannot block the partition forever. DLQ depth is a metric and an alert.
+.NET consumers and the analytics consumer use a consumer group per service (`notification-service`, `analytics-service`). Processing failures retry with backoff inside the consumer. After 5 failures the record is appended to `{topic}.dlq` with the error class and the original payload, and the offset of the source record is committed so one poison message cannot block the partition forever. DLQ depth is a metric and an alert.
 
 ### Schema evolution
 
@@ -1686,7 +1690,7 @@ Testcontainers PostgreSQL, and Kafka where a consumer is under test.
 | Outbox publisher | A committed event is published; a rolled-back business transaction leaves no outbox row. | Exactly-once Kafka. |
 | Provider adapters | WireMock fixtures for OpenAI-shaped, Anthropic-shaped, and error payloads. | Live provider accounts. |
 | Analytics consumer | A duplicated `event_id` increments spend once. | Dashboards under load. |
-| Saga orchestration | Containers for gateway, identity, policy-routing, budget-ledger, provider, and mock reach the expected terminal state. | Atomic commit across services; none exists. |
+| Saga orchestration | Containers for gateway, inference, identity, tenant, policy, catalog, budget-ledger, provider, and mock reach the expected terminal state. | Atomic commit across services; none exists. |
 | Database isolation | Every service credential is denied access to other service databases. | Network-level isolation in a future production platform. |
 
 ### Concurrency tests
@@ -1698,7 +1702,7 @@ Testcontainers PostgreSQL, and Kafka where a consumer is under test.
 | Duplicate idempotency keys in parallel | One provider invocation, one `CHARGE`, losers receive `409` or the stored response. |
 | Two settlement attempts | One `CHARGE`, `settled_spend` increased once. |
 
-These tests use threads or virtual threads against one PostgreSQL. They do not prove correctness on a database with different isolation settings than the application's `READ COMMITTED` plus the documented predicates.
+These tests use concurrent tasks or threads against one PostgreSQL. They do not prove correctness on a database with different isolation settings than the application's `READ COMMITTED` plus the documented predicates.
 
 ### Failure tests
 
@@ -1709,7 +1713,7 @@ These tests use threads or virtual threads against one PostgreSQL. They do not p
 | Breaker opens and a second allowed provider succeeds | One charge, prompt sent to the second provider only because the fixture policy opted in. |
 | Timeout after send | State becomes `UNCERTAIN`, no failover call, hold remains until reconciliation. |
 | Kafka stopped | Settlement still commits; outbox rows stay unpublished; client still receives the completion. |
-| Identity or policy-routing unavailable before reservation | Gateway returns `503`; no reservation or provider attempt exists. |
+| Identity, tenant, policy, or model-catalog unavailable before reservation | Gateway returns `503`; no reservation or provider attempt exists. |
 | Gateway loses the reserve response | Retried reserve command returns the original reservation; one hold exists. |
 | Budget service unavailable after provider success | Provider outcome remains durable; gateway recovery settles later; no second provider call occurs. |
 | Provider service unavailable after reservation | Hold remains until recovery confirms no attempt, then releases; gateway does not infer non-execution from a timeout alone. |
@@ -1758,20 +1762,25 @@ ai-gateway-platform/
 │   ├── api.md
 │   ├── event-catalog.md
 │   └── development.md
-├── java/
-│   ├── pom.xml                   # aggregator only; no deployable code
+├── dotnet/
+│   ├── Aigateway.sln             # solution for local builds; not a shared runtime
+│   ├── Directory.Build.props     # shared compiler/package settings
 │   ├── contracts/                # generated clients and event DTOs; no domain logic
-│   ├── ai-gateway/
+│   ├── api-gateway/
+│   ├── inference-service/
 │   ├── identity-service/
-│   ├── policy-routing-service/
+│   ├── tenant-service/
+│   ├── policy-service/
+│   ├── model-catalog-service/
 │   ├── budget-ledger-service/
 │   ├── provider-service/
-│   └── notification-service/
-│       # each deployable directory contains:
-│       # pom.xml
-│       # src/main/java/
-│       # src/main/resources/db/migration/
-│       # src/test/java/
+│   ├── notification-service/
+│   └── audit-service/
+│       # each deployable project contains:
+│       # *.csproj
+│       # Program.cs / appsettings.json
+│       # Domain/, Application/, Adapters/
+│       # Migrations/
 ├── python/
 │   ├── analytics-service/
 │   │   ├── pyproject.toml
@@ -1788,17 +1797,17 @@ ai-gateway-platform/
 └── scripts/
 ```
 
-Every directory ending in `-service` and `ai-gateway` builds an independent executable image and can be released without rebuilding or deploying the others. The root Maven build is developer convenience, not a shared runtime. `contracts` contains generated HTTP clients, event envelopes, and test fixtures only. Sharing domain entities, repositories, migrations, or service implementations through that module is prohibited.
+Every directory ending in `-service` and `api-gateway` builds an independent executable image and can be released without rebuilding or deploying the others. The root .NET solution is developer convenience, not a shared runtime. `contracts` contains generated HTTP clients, event envelopes, and test fixtures only. Sharing domain entities, DbContext types, migrations, or service implementations through that project is prohibited.
 
 Python services are split because they already have different dependencies and failure domains: analytics consumes Kafka; the mock provider must stay up as a test double even when analytics is stopped.
 
 `docs/` holds extracts and ADRs written during implementation. If an ADR disagrees with this README, the implementer updates both in the same change. The README remains the default entry point.
 
-`.gitignore` must exclude `.env`, Python virtualenvs, `target/`, `__pycache__`, the analytics journal directory, and IDE metadata.
+`.gitignore` must exclude `.env`, Python virtualenvs, `bin/`, `obj/`, `__pycache__`, the analytics journal directory, and IDE metadata.
 
 ## Local development
 
-The commands in this section are the intended workflow for the repository described above. This checkout does not yet contain `docker-compose.yml`, Maven wrappers, or Python packages, so these commands are not a verified transcript.
+The commands in this section are the intended workflow for the repository described above. This checkout does not yet contain a complete Compose app stack, .NET solution packaging, or all Python packages, so these commands are not a verified transcript.
 
 Branch and commit naming conventions live in [docs/development.md](docs/development.md).
 
@@ -1840,8 +1849,8 @@ Empty provider keys with `*_ENABLED=false` keep the gateway on the mock provider
 
 ```bash
 docker compose up -d postgres redis kafka
-docker compose up -d identity-service policy-routing-service budget-ledger-service
-docker compose up -d provider-service notification-service mock-provider ai-gateway
+docker compose up -d identity-service tenant-service policy-service model-catalog-service budget-ledger-service
+docker compose up -d provider-service notification-service audit-service mock-provider inference-service api-gateway
 ```
 
 Observability profile, once those Compose services exist:
@@ -1852,25 +1861,25 @@ docker compose --profile obs up -d prometheus grafana
 
 ### Database migrations
 
-Each service owns and applies only its Flyway migrations on startup. To verify every migration in the Maven build:
+Each service owns and applies only its EF Core migrations. Prefer a startup migrate for local development and a pre-deploy migration Job in AKS. To apply a service migration locally:
 
 ```bash
-cd java
-./mvnw verify -Pmigrations
+cd dotnet/budget-ledger-service
+dotnet ef database update
 ```
 
 ### Run the gateway
 
 ```bash
-cd java/ai-gateway
-./mvnw spring-boot:run
+cd dotnet/api-gateway
+dotnet run
 ```
 
 Run an individual internal service while its dependencies stay in Compose:
 
 ```bash
-cd java/budget-ledger-service
-./mvnw spring-boot:run
+cd dotnet/budget-ledger-service
+dotnet run
 ```
 
 For the normal local workflow, prefer `docker compose up --build`; it starts all service executables, service-owned databases, and outbox publishers with stable internal DNS names.
@@ -1896,12 +1905,11 @@ uvicorn analytics_service.main:app --reload --port 8082
 ### Tests
 
 ```bash
-cd java
-./mvnw test
-./mvnw verify
+cd dotnet
+dotnet test
 ```
 
-`verify` is the intended Testcontainers run and needs a local Docker daemon.
+Integration tests that use Testcontainers need a local Docker daemon.
 
 ```bash
 cd python/mock-provider && python -m pytest
@@ -1910,11 +1918,11 @@ cd python/analytics-service && python -m pytest
 
 ### API documentation
 
-Once springdoc is added, the public gateway UI is `http://localhost:8080/swagger-ui.html`. Internal Java service OpenAPI documents are available only on their Compose-internal ports or explicitly mapped development ports. FastAPI serves the mock and analytics docs on their configured development ports.
+Once Swagger/OpenAPI is enabled, the public gateway UI is `http://localhost:8080/swagger`. Internal .NET service OpenAPI documents are available only on their Compose-internal ports or explicitly mapped development ports. FastAPI serves the mock and analytics docs on their configured development ports.
 
 ### Prometheus and Grafana
 
-Intended local ports: Prometheus `http://localhost:9090`, Grafana `http://localhost:3000`. The gateway scrape target is `http://host.docker.internal:8080/actuator/prometheus` when the gateway runs on the host and Prometheus runs in Compose.
+Intended local ports: Prometheus `http://localhost:9090`, Grafana `http://localhost:3000`. The gateway scrape target is `http://host.docker.internal:8080/metrics` when the gateway runs on the host and Prometheus runs in Compose.
 
 ### Mock failure demonstration
 
@@ -1947,9 +1955,9 @@ Each phase leaves the system runnable. Later phases do not rewrite the financial
 ### Phase 0 — Repository and development environment
 
 - **Goal:** A developer can start the service topology and prove database isolation before business logic exists.
-- **Components:** Compose file, `.env.example`, `.gitignore`, Maven aggregator, independent Spring Boot projects and images, one database/user per service, Flyway baselines, GitHub Actions, Python project skeletons.
+- **Components:** Compose file, `.env.example`, `.gitignore`, .NET solution, independent ASP.NET Core projects and images, one database/user per service, EF Core migration baselines, GitHub Actions, Python project skeletons.
 - **Dependencies:** None.
-- **Deliverables:** `docker compose up` starts all empty services and infrastructure. Every service serves `/actuator/health`.
+- **Deliverables:** `docker compose up` starts all empty services and infrastructure. Every service serves `/health`.
 - **Tests:** Context-load test per service; a database-isolation test proves, for example, the gateway user cannot read `budget_db`.
 - **Done when:** A clean machine can reach the gateway health endpoint, see all internal services ready, and no service credential can access another service database.
 
@@ -1964,8 +1972,8 @@ Each phase leaves the system runnable. Later phases do not rewrite the financial
 
 ### Phase 2 — Organizations, teams, keys, and policies
 
-- **Goal:** `identity-service` identifies a team and `policy-routing-service` creates a versioned route decision.
-- **Components:** Identity database/API, key introspection, policy-routing database/API, admin facade routes in the gateway, generated internal clients.
+- **Goal:** `identity-service` and `tenant-service` identify a team; `policy-service` and `model-catalog-service` create versioned decisions.
+- **Components:** Identity and tenant databases/APIs, key introspection, policy and catalog databases/APIs, admin facade routes in the gateway, generated internal clients.
 - **Dependencies:** Phase 1.
 - **Deliverables:** Key create/revoke, effective policy, `GET /v1/models`.
 - **Tests:** Hash is stored only in `identity_db`; revoked key receives `401`; cross-team access receives `403`; disallowed model creates neither a reservation nor provider attempt; contract compatibility tests run between callers and services.
@@ -1983,16 +1991,16 @@ Each phase leaves the system runnable. Later phases do not rewrite the financial
 ### Phase 4 — Real provider adapters
 
 - **Goal:** `provider-service` invokes OpenAI and Anthropic behind the same internal contract as the mock.
-- **Components:** Provider adapters and credentials in provider-service; model aliases/prices and immutable route decisions in policy-routing-service; price snapshot copied into the budget reservation.
+- **Components:** Provider adapters and credentials in provider-service; model aliases/prices and immutable route decisions in model-catalog-service; price snapshot copied into the budget reservation.
 - **Dependencies:** Phase 3.
 - **Deliverables:** Feature flags to enable each provider. Live calls are optional in CI; WireMock fixtures are required.
 - **Tests:** Contract tests for success, 401, 429, 503, and a malformed body. A test that price changes do not affect an already reserved request.
-- **Done when:** Disabling a provider requires no code edit; `supports_idempotency` remains false unless tested; no provider secret is present in gateway or policy-routing environments.
+- **Done when:** Disabling a provider requires no code edit; `supports_idempotency` remains false unless tested; no provider secret is present in gateway, policy, or catalog environments.
 
 ### Phase 5 — Resilience and failover
 
 - **Goal:** Complete the saga recovery path across gateway, provider, and budget service failures.
-- **Components:** Resilience4j in provider-service, durable attempt tracking, gateway workflow recovery, budget/provider reconciliation APIs, conservative settlement, health events in provider outbox.
+- **Components:** Polly in provider-service, durable attempt tracking, gateway workflow recovery, budget/provider reconciliation APIs, conservative settlement, health events in provider outbox.
 - **Dependencies:** Phase 4 for real classifiers; the mock is sufficient to develop the behavior.
 - **Deliverables:** Failure matrix covered by tests. Default `allow_prompt_failover=false`.
 - **Tests:** Failure-test table in [Testing strategy](#testing-strategy).
@@ -2019,7 +2027,7 @@ Each phase leaves the system runnable. Later phases do not rewrite the financial
 ### Phase 8 — Observability and alerting
 
 - **Goal:** An operator can see latency, failures, budget denials, outbox depth, and threshold alerts.
-- **Components:** Micrometer metrics, JSON logging, redaction filter, Grafana dashboard, webhook notifier, Prometheus scrape config. OpenTelemetry collector as a Compose profile.
+- **Components:** OpenTelemetry/.NET metrics, JSON logging, redaction filter, Grafana dashboard, webhook notifier, Prometheus scrape config. OpenTelemetry collector as a Compose profile.
 - **Dependencies:** Phases 3 and 6 for the signals that matter. Basic health belongs in phase 0 and should not wait until here.
 - **Deliverables:** Dashboards and alert dedup.
 - **Tests:** Log output from a sample request contains `request_id` and does not contain the bearer token or message text. A second 80% crossing in the same period does not create a second delivery row.
@@ -2071,7 +2079,7 @@ Guarantees the MVP does **not** make:
 - A single ACID transaction across PostgreSQL, Kafka, and the provider.
 - Invoice-accurate costs when usage is missing, when the provider bills differently from `model_configs`, or when conservative settlement is used before reconciliation.
 - A latency or throughput SLO. Load tests report measurements.
-- Globally coordinated circuit breaking across multiple `provider-service` replicas. MVP health state is per JVM.
+- Globally coordinated circuit breaking across multiple `provider-service` replicas. MVP health state is per process.
 - A complete copy of every provider's API.
 
 ## Limitations and future improvements
@@ -2080,7 +2088,7 @@ Guarantees the MVP does **not** make:
 - **Conservative settlement overstates spend** until a credit adjustment. That protects the budget and can annoy a team that sees reserved funds become settled spend after a timeout the provider did not bill.
 - **Analytics can lag and can forget** events older than Kafka retention if the journal and any snapshot are both lost. PostgreSQL remains the financial record.
 - **One currency and calendar-month periods** simplify the first ledger. Multi-currency and custom periods are future work.
-- **Per-JVM circuit breakers** are correct for the single local `provider-service` process. They are not a shared view once several provider-service replicas run.
+- **Per-process circuit breakers** are correct for the single local `provider-service` process. They are not a shared view once several provider-service replicas run.
 - **No prompt store** limits abuse investigation. Adding one is a privacy design, not a logging flag.
 - **Administrative authentication is a bearer token**, which is appropriate for service setup and too weak for a broad human user base. OIDC belongs with the optional frontend.
 - **The mock's definite 503 is a contract we control.** A real provider can return 503 after doing the work. Classifiers for live providers should start pessimistic (`UNCERTAIN`) when the vendor documentation is ambiguous.

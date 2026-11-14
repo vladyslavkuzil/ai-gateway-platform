@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/AccessTenancy/">
+    <Project Path="src/Services/AccessTenancy/Aigateway.AccessTenancy.Application/Aigateway.AccessTenancy.Application.csproj" />
+    <Project Path="src/Services/AccessTenancy/Aigateway.AccessTenancy.Domain/Aigateway.AccessTenancy.Domain.csproj" />
+    <Project Path="src/Services/AccessTenancy/Aigateway.AccessTenancy.Presentation/Aigateway.AccessTenancy.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/BudgetLedger/">
+    <Project Path="src/Services/BudgetLedger/Aigateway.BudgetLedger.Application/Aigateway.BudgetLedger.Application.csproj" />
+    <Project Path="src/Services/BudgetLedger/Aigateway.BudgetLedger.Domain/Aigateway.BudgetLedger.Domain.csproj" />
+    <Project Path="src/Services/BudgetLedger/Aigateway.BudgetLedger.Presentation/Aigateway.BudgetLedger.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/ProviderExecution/">
+    <Project Path="src/Services/ProviderExecution/Aigateway.ProviderExecution.Application/Aigateway.ProviderExecution.Application.csproj" />
+    <Project Path="src/Services/ProviderExecution/Aigateway.ProviderExecution.Domain/Aigateway.ProviderExecution.Domain.csproj" />
+    <Project Path="src/Services/ProviderExecution/Aigateway.ProviderExecution.Presentation/Aigateway.ProviderExecution.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/BudgetLedger/">
+    <Project Path="tests/BudgetLedger/Aigateway.BudgetLedger.Application.Tests/Aigateway.BudgetLedger.Application.Tests.csproj" />
+    <Project Path="tests/BudgetLedger/Aigateway.BudgetLedger.Domain.Tests/Aigateway.BudgetLedger.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

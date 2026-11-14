@@ -74,7 +74,7 @@ Optional body for non-obvious *why*.
 | `test` | Tests only |
 | `docs` | Docs only |
 | `refactor` | Restructure without behavior change |
-| `build` | Maven/Docker/build pipeline |
+| `build` | .NET/Docker/build pipeline |
 
 ### Scopes
 

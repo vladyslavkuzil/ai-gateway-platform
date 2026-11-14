@@ -70,16 +70,14 @@ services:
   provider-service:
     profiles: ["apps"]
     build:
-      context: ./java/provider-service
+      context: ./dotnet/provider-service
     container_name: aigw-provider-service
     ports:
       - "8089:8089"
     environment:
-      SERVER_PORT: 8089
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${PROVIDER_DB}
-      SPRING_DATASOURCE_USERNAME: ${PROVIDER_DB_USER}
-      SPRING_DATASOURCE_PASSWORD: ${PROVIDER_DB_PASSWORD}
-      MOCK_PROVIDER_BASE_URL: http://mock-provider:8081
+      ASPNETCORE_URLS: http://+:8089
+      ConnectionStrings__ProviderDb: Host=postgres;Port=5432;Database=${PROVIDER_DB};Username=${PROVIDER_DB_USER};Password=${PROVIDER_DB_PASSWORD}
+      MockProvider__BaseUrl: http://mock-provider:8081
       OPENAI_ENABLED: ${OPENAI_ENABLED}
       ANTHROPIC_ENABLED: ${ANTHROPIC_ENABLED}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -93,18 +91,16 @@ services:
   inference-service:
     profiles: ["apps"]
     build:
-      context: ./java/inference-service
+      context: ./dotnet/inference-service
     container_name: aigw-inference-service
     ports:
       - "8083:8083"
     environment:
-      SERVER_PORT: 8083
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INFERENCE_DB}
-      SPRING_DATASOURCE_USERNAME: ${INFERENCE_DB_USER}
-      SPRING_DATASOURCE_PASSWORD: ${INFERENCE_DB_PASSWORD}
-      PROVIDER_SERVICE_URL: http://provider-service:8089
-      REDIS_URL: redis://redis:6379
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ASPNETCORE_URLS: http://+:8083
+      ConnectionStrings__InferenceDb: Host=postgres;Port=5432;Database=${INFERENCE_DB};Username=${INFERENCE_DB_USER};Password=${INFERENCE_DB_PASSWORD}
+      ProviderService__BaseUrl: http://provider-service:8089
+      Redis__Connection: redis:6379
+      Kafka__BootstrapServers: kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,15 +110,15 @@ services:
   api-gateway:
     profiles: ["apps"]
     build:
-      context: ./java/api-gateway
+      context: ./dotnet/api-gateway
     container_name: aigw-api-gateway
     ports:
       - "${API_GATEWAY_PORT}:8080"
     environment:
-      SERVER_PORT: 8080
-      INFERENCE_SERVICE_URL: http://inference-service:8083
-      REDIS_URL: redis://redis:6379
-      BOOTSTRAP_ADMIN_TOKEN: ${BOOTSTRAP_ADMIN_TOKEN}
+      ASPNETCORE_URLS: http://+:8080
+      InferenceService__BaseUrl: http://inference-service:8083
+      Redis__Connection: redis:6379
+      BootstrapAdminToken: ${BOOTSTRAP_ADMIN_TOKEN}
     depends_on:
       inference-service:
         condition: service_started

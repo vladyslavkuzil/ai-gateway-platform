@@ -3,23 +3,24 @@
 .env.*
 !.env.example
 
-# Java / Maven
-target/
-!.mvn/wrapper/maven-wrapper.jar
-*.class
-*.jar
-*.war
-*.ear
-*.iml
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+project.lock.json
+artifacts/
+TestResults/
+*.nupkg
+*.snupkg
+
+# IDE
 .idea/
-*.ipr
-*.iws
-.classpath
-.project
-.settings/
-.factorypath
-hs_err_pid*
-replay_pid*
+*.iml
+.vs/
+*.swp
 
 # Python
 .venv/
